@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image
 
+from . import config
+
 # COCO 17 ключевых точек, порядок как в DW-Pose
 KEYPART_NAMES = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -32,9 +34,9 @@ SKELETON = [
     (11, 13), (13, 15), (12, 14), (14, 16),
 ]
 
-# ponytail: путь к детектору лиц зашит здесь; при переносе проекта поправить FACE_MODEL
-FACE_MODEL = "/Users/user/PycharmProjects/FaceTools/models/yolov8n-face.pt"
-POSE_PROVIDERS = ("CUDA", "CPU")  # на этой машине CUDA не используется — CPU-режим
+# ponytail: путь к весам лиц задаётся в config.py — переопределить через env
+# IMGSIM_FACE_MODEL. Дефолт — models/, туда же кладутся и веса модели.
+FACE_MODEL = config.FACE_MODEL
 
 
 @dataclass
@@ -92,8 +94,9 @@ class PoseDetector:
     def detect_pose(self, img: Image.Image) -> Pose | None:
         """Вернуть лучшую позу (макс. total_score) или None, если людей нет."""
         try:
-            res = self._load_whole()(np.array(img.convert("RGB")))
-            people = self._load_whole().format_result(res)
+            whole = self._load_whole()
+            res = whole(np.array(img.convert("RGB")))
+            people = whole.format_result(res)
         except Exception:
             return None
         if not people:

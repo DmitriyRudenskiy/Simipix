@@ -1,5 +1,6 @@
 """Общие константы и настройки imgsim."""
 
+import os
 from pathlib import Path
 
 # Корень проекта (папка выше imgsim/). Отсюда берём локальные модели и ./models.
@@ -17,6 +18,20 @@ MODEL_DIM = 1536
 # Локальная директория с весами модели. Пусто → грузим с HuggingFace Hub.
 # Заполнить: python download_model.py
 MODELS_DIR = PROJECT_ROOT / "models"
+
+# Весы детектора лиц (yolov8n-face). Точку нахождения задаём здесь, а не в
+# pose.py: переопределить через env IMGSIM_FACE_MODEL, проект станет переносимым.
+# Дефолт — models/ (туда же кладутся и веса модели); ради обратной
+# совместимости с прежней раскладкой падает на старый путь, если модели в
+# models/ пока нет.
+_DEFAULT_FACE_MODEL = MODELS_DIR / "yolov8n-face.pt"
+_LEGACY_FACE_MODEL = Path(
+    "/Users/user/PycharmProjects/FaceTools/models/yolov8n-face.pt")
+_face_env = os.environ.get("IMGSIM_FACE_MODEL")
+FACE_MODEL = (Path(_face_env) if _face_env
+              else (_DEFAULT_FACE_MODEL
+                    if _DEFAULT_FACE_MODEL.exists()
+                    else _LEGACY_FACE_MODEL))
 
 # --- Изображения --------------------------------------------------------------
 IMAGE_EXTS = {".jpg", ".jpeg", ".jfif", ".png", ".webp", ".bmp", ".gif",

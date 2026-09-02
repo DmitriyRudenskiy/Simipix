@@ -23,6 +23,16 @@ from . import config
 Image.MAX_IMAGE_PIXELS = None
 
 
+def _resize_to_max(img: Image.Image, max_side: int) -> Image.Image:
+    """Ресайз по большей стороне до max_side (BILINEAR), если больше."""
+    w, h = img.size
+    if max(w, h) <= max_side:
+        return img
+    scale = max_side / max(w, h)
+    return img.resize((max(1, round(w * scale)), max(1, round(h * scale))),
+                      Image.BILINEAR)
+
+
 def iter_image_files(root: Path, recursive: bool = True,
                      exclude_dirs: tuple = ()) -> Iterator[Path]:
     """Итератор по файлам-изображениям внутри root.
@@ -61,13 +71,7 @@ def prepare_image(data: bytes, max_side: int = config.PREPROCESS_MAX_SIDE) -> Im
         img.draft("RGB", (max_side, max_side))
     img = ImageOps.exif_transpose(img)  # учитываем ориентацию из EXIF
     img = img.convert("RGB")
-    w, h = img.size
-    m = max(w, h)
-    if m > max_side:
-        scale = max_side / m
-        img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))),
-                         Image.BILINEAR)
-    return img
+    return _resize_to_max(img, max_side)
 
 
 def make_thumbnail(data: bytes, thumbs_dir: Path, sha: str,
@@ -86,12 +90,7 @@ def make_thumbnail(data: bytes, thumbs_dir: Path, sha: str,
     if img.format == "JPEG":
         img.draft("RGB", (size, size))
     img = ImageOps.exif_transpose(img).convert("RGB")
-    w, h = img.size
-    m = max(w, h)
-    if m > size:
-        scale = size / m
-        img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))),
-                         Image.BILINEAR)
+    img = _resize_to_max(img, size)
     tmp = out.with_suffix(".tmp")
     img.save(tmp, "WEBP", quality=quality, method=5)
     tmp.replace(out)

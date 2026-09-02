@@ -99,6 +99,12 @@ class ContentDetector:
         return {"label": label, "safe": round(safe, 4), "nsfw": round(nsfw, 4)}
 
 
+# Единый на модуль детектор: модель грузится один раз и кэшируется (лениво,
+# потокобезопасно). detect_content вызывается в индексации по одному на картинку,
+# поэтому новый ContentDetector на каждый вызов заново грузил бы модель с диска
+# — это была бы серьёзная потеря скорости, поэтому детектор общий.
+_detector = ContentDetector()
+
+
 def detect_content(img: Image.Image) -> dict:
-    _detector = ContentDetector()
     return _detector.detect(img)

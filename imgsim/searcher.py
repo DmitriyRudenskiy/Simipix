@@ -30,7 +30,6 @@ def _search_pose(pose_vec, store, query_sha, top_k, min_score, log):
             d = json.loads(pose_json)
         except Exception:
             continue
-        from .pose import Pose
         p = Pose.from_dict(d)
         s = cosine(pose_vec, p.vector())
         if s < min_score:
@@ -58,6 +57,7 @@ def _search_palette(pvec, store, query_sha, top_k, min_score, log):
             pal = json.loads(pal_json)
         except Exception:
             continue
+        from . import analyze
         v = analyze.palette_vector(pal)
         a = np.asarray(pvec, dtype=np.float32)
         b = np.asarray(v, dtype=np.float32)
