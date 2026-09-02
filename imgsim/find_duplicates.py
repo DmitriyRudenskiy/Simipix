@@ -143,7 +143,8 @@ function gen(){
   paths.forEach(function(p){L.push(\"  '\"+p.replace(/'/g,\"'\\\\''\")+\"'\");});
   L.push('# 3) Пересобрать индекс с --prune для чистоты:');
   L.push('#   imgsim index <каталог> --db '+db+' --prune');
-  document.getElementById('out').value=L.join('\\n').select();
+  document.getElementById('out').value=L.join('\\n');
+
 }
 """
 
@@ -206,9 +207,14 @@ def render_html(groups: list[list[int]], scores: list[dict], rows: list,
 
     parts.append('<div class="sticky"><button onclick="gen()">Удалить отмеченное'
                  '</button><span class="hint">Генерирует `imgsim delete` + rm — '
-                 ' только после проверки. <textarea id="out" style="position:'
-                 'absolute;left:-99999px"></textarea></span></div><script>' +
+                 ' только после проверки.</span></div>')
+    parts.append('<textarea id="out" class="out" readonly placeholder='
+                 '"Нажмите «Удалить отмеченное», чтобы сгенерировать команды '
+                 'удаление. Проверьте и скопируйте.">'
+                 '</textarea>')
+    parts.append('<script>' +
                  _JS.replace('__DB_DIR__', repr(db_dir)) + '</script></body></html>')
+
     return ''.join(parts)
 
 
