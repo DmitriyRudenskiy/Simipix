@@ -18,7 +18,7 @@ def _search_pose(pose_vec, store, query_sha, top_k, min_score, log):
     """Поиск похожих поз: косинус эмбеддинга запроса над всеми позами."""
     if pose_vec is None:
         return []
-    rows = store.all_rows()
+    rows = store.all_rows(columns=["hash", "path", "thumb", "pose"])
     scored = []
     for r in rows:
         if r.get("hash") == query_sha:
@@ -45,7 +45,7 @@ def _search_palette(pvec, store, query_sha, top_k, min_score, log):
         return []
     import json
     from . import analyze
-    rows = store.all_rows()
+    rows = store.all_rows(columns=["hash", "path", "thumb", "palette"])
     scored = []
     for r in rows:
         if r.get("hash") == query_sha:
@@ -57,7 +57,6 @@ def _search_palette(pvec, store, query_sha, top_k, min_score, log):
             pal = json.loads(pal_json)
         except Exception:
             continue
-        from . import analyze
         v = analyze.palette_vector(pal)
         a = np.asarray(pvec, dtype=np.float32)
         b = np.asarray(v, dtype=np.float32)
@@ -88,12 +87,15 @@ def run_search(query_image: str, db_dir: str, model_dir: str | None = None,
         raise SystemExit(f"Индекс пуст. Сначала выполните:\n"
                          f"  imgsim index <каталог> --db {db_dir}")
 
-    # DINOv2-модель и детектор поз/лиц нужны только для image/face/pose; в
-    # режиме palette запрос — только палитра (PIL), тяжёлая модель не грузится.
+    # Тяжёлые зависимости грузим строго по режиму: DINOv2-эбдердер нужен только
+    # для image/face (эбдердинг запроса), PoseDetector — только для pose/face
+    # (crop_face / detect_pose). В режиме pose модель giant (1.5 ГБ) не грузится
+    # вовсе — только DW-Pose+face-детектор. В palette — ни то, ни другое.
     embedder = None
     pose_detector = None
-    if mode != "palette":
+    if mode in ("image", "face"):
         embedder = DINOv2Embedder(model_dir=model_dir, log=log)
+    if mode in ("pose", "face"):
         pose_detector = PoseDetector()
 
     # --- эмбеддинг/поза запроса ------------------------------------------------

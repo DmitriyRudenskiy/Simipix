@@ -48,13 +48,14 @@ def _find_groups(rows: list, threshold: float):
     Возвращает (groups, scores): groups — список списков индексов записей,
     scores[i] — cosine записи i относительно образца группы (крупнейшего файла).
 
-    ponytail: O(n) памяти на матрицу сходства, поиск пар — векторизованно
-    (np.triu). Для больших каталогов (десятки тысяч) добавлять поиск
-    кандидатов через ANN-индекс, а не полную матрицу.
+    ponytail: матрица сходства считается блочно — память O(block × n) вместо
+    O(n²), поэтому даже большими инксами не рвёт RAM. Перебор всех пар i<j тот
+    же; для десятков тысяч добавлять поиск кандидатов через ANN-индекс.
     """
     n = len(rows)
-    vectors = np.array([r["vector"] for r in rows], dtype=np.float32)
-    sim = vectors @ vectors.T  # cosine, т.к. vectors уже L2-нормализованы
+    if n < 2:
+        return [], []
+    vectors = np.stack([r["vector"] for r in rows], axis=0).astype(np.float32)
 
     parent = list(range(n))
 
@@ -64,11 +65,21 @@ def _find_groups(rows: list, threshold: float):
             x = parent[x]
         return x
 
-    pairs = np.nonzero(np.triu(sim, k=1) >= threshold)
-    for a, b in zip(pairs[0].tolist(), pairs[1].tolist()):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
+    # Блочный перебор пар: промежуточная матрица (block × n) не превышает ~2 ГБ,
+    # независимо от n — квадратично растёт только число найденных пар. Блоки
+    # подряд, поэтому порядок обхода i<j как у np.triu (для union-find не важен).
+    cap = 2 * 1024 ** 3
+    block = max(1, min(8192, cap // (n * 4)))
+    for start in range(0, n, block):
+        end = min(start + block, n)
+        row_sim = vectors[start:end] @ vectors.T  # (block, n), cosine
+        for bi, i in enumerate(range(start, end)):
+            col = row_sim[bi]
+            for j in range(i + 1, n):
+                if col[j] >= threshold:
+                    ra, rb = find(i), find(j)
+                    if ra != rb:
+                        parent[ra] = rb
 
     buckets: dict[int, list[int]] = {}
     for i in range(n):
@@ -260,3 +271,20 @@ def run_find_duplicates(db_dir: str, model_dir: str | None = None,
         log(f'  ... ещё {len(groups) - 20} групп')
     log(f'HTML: {out.resolve()} ({time.time() - t0:.1f} с)')
     return out
+
+
+if __name__ == "__main__":
+    # ponytail: самодосточная проверка блочного _find_groups на синтетике.
+    v = lambda *c: list(np.array(c, dtype=np.float32))
+    rows = [
+        {"hash": "a", "vector": v(1, 0, 0)},
+        {"hash": "b", "vector": v(0.99, 0.01, 0.01)},  # ~a
+        {"hash": "c", "vector": v(0, 1, 0)},
+        {"hash": "d", "vector": v(0.01, 0.99, 0.01)},  # ~c
+        {"hash": "e", "vector": v(0, 0, 1)},           # изолирован
+    ]
+    groups, scores = _find_groups(rows, 0.9)
+    assert len(groups) == 2, groups
+    assert all(len(g) == 2 for g in groups), groups
+    assert all(all(v >= 0.9 for v in s.values()) for s in scores), scores
+    print("find_duplicates selfcheck OK:", groups)

@@ -10,9 +10,24 @@
 """
 
 import math
+import re
 from pathlib import Path
 
 from . import config
+
+# sha1 hex — единственный легальный формат хеша-первичного ключа.
+_HASH_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _check_hash(h: str) -> str:
+    """sha1-хеш (40 hex): проверяем один раз, а не в каждом escape-блоке.
+
+    Защишает where/delete от инъекций — на практике хеши всегда легальны, но
+    держать проверку рядом с формированием запроса дешевле, чем полагаться на
+    «везде только hex». Хеш из файла/базы не может несено вбросить quote."""
+    if not isinstance(h, str) or not _HASH_RE.match(h):
+        raise ValueError(f"некорректный хеш: {h!r}")
+    return h
 
 
 def _chunks(seq, n):
@@ -141,7 +156,7 @@ class ImageStore:
         # Перемещённые/переименованные файлы редки, поэтому N прогодов ок.
         n_upd = 0
         for r in upd_rows:
-            q = "'" + r["hash"].replace("'", "''") + "'"
+            q = "'" + _check_hash(r["hash"]).replace("'", "''") + "'"
             t.update(where=f"hash = {q}",
                      values={"path": r["path"], "mtime": r["mtime"],
                              "size": r["size"], "thumb": r["thumb"]})
@@ -160,7 +175,8 @@ class ImageStore:
         current = self.existing_hashes()
         to_delete = [h for h in current if h not in keep_hashes]
         for chunk in _chunks(sorted(to_delete), 500):
-            quoted = ", ".join("'" + h.replace("'", "''") + "'" for h in chunk)
+            quoted = ", ".join("'" + _check_hash(h).replace("'", "''") + "'"
+                               for h in chunk)
             t.delete(f"hash IN ({quoted})")
         return len(to_delete)
 
@@ -171,7 +187,8 @@ class ImageStore:
             return 0
         n = 0
         for chunk in _chunks(sorted(set(hashes)), 500):
-            quoted = ", ".join("'" + h.replace("'", "''") + "'" for h in chunk)
+            quoted = ", ".join("'" + _check_hash(h).replace("'", "''") + "'"
+                               for h in chunk)
             t.delete(f"hash IN ({quoted})")
             n += 1
         return n
@@ -219,16 +236,21 @@ class ImageStore:
         except Exception as e:
             log(f"  (компактация пропущена: {e})")
 
-    def all_rows(self, include_vector: bool = False) -> list:
-        """Все строки для каталога (путь/mtime/size/thumb, +вектор по запросу)."""
+    def all_rows(self, include_vector: bool = False,
+                 columns: list | None = None) -> list:
+        """Все строки для каталога. columns=None → все кроме vector (+vector).
+
+        При поиске по позе/палитре передаём узкий список: не тащим face_vector
+        (1536 float) и прочее, что в том режиме не читается."""
         t = self.table(create=False)
         if t is None or t.count_rows() == 0:
             return []
-        cols = ["hash", "path", "mtime", "size", "thumb", "pose", "face_vector",
-                "palette", "content"]
-        if include_vector:
-            cols.append("vector")
-        return t.to_arrow().select(cols).to_pylist()
+        if columns is None:
+            columns = ["hash", "path", "mtime", "size", "thumb", "pose",
+                       "face_vector", "palette", "content"]
+            if include_vector:
+                columns.append("vector")
+        return t.to_arrow().select(columns).to_pylist()
 
     # ------------------------------------------------------------------ search
     def search(self, vector, k: int, column: str = "vector") -> list:
@@ -239,7 +261,8 @@ class ImageStore:
         q = t.search(vector, vector_column_name=column).limit(k)
         if column == "vector" and self.has_vector_index():
             n_parts = max(1, int(round(math.sqrt(t.count_rows()))))
-            q = q.nprobes(max(1, n_parts // 5)).refine_factor(10)
+            nprobes = max(1, n_parts // config.ANN_NPROBES_DIVISOR)
+            q = q.nprobes(nprobes).refine_factor(10)
         return q.to_list()
 
     def flat_cosine(self, query: list, column: str, k: int,
