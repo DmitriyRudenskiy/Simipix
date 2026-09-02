@@ -1,7 +1,9 @@
 # Generated / large artifacts
 image_db/
 results/
-models/
+models/*
+!models/.gitkeep
+!models/README.md
 
 # Python caches
 __pycache__/
