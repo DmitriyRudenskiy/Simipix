@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>imgsim</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--card:#1c2029;--line:#262b36;--muted:#8b93a5;--accent:#5b9dff;--del:#e35d5d}
+body{margin:0;background:var(--bg);color:#eaeef5;font:14px/1.5 -apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;color:var(--accent)}
+.stat{color:var(--muted);font-size:13px}
+.stat b{color:#eaeef5}
+button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+button.secondary{background:transparent;color:#eaeef5;border:1px solid var(--line)}
+button.del{background:var(--del)}
+button:disabled{opacity:.5;cursor:default}
+main{padding:18px 20px;max-width:1400px;margin:0 auto}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.toolbar input,.toolbar select{background:var(--panel);color:#eaeef5;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;position:relative}
+.card .thumb{width:100%;aspect-ratio:1/1;object-fit:cover;display:block}
+.card .meta{padding:6px 8px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card input[type=checkbox]{position:absolute;top:6px;left:6px;width:16px;height:16px;accent-color:var(--del)}
+.card .score{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:2px 6px;border-radius:6px}
+.card .like{position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:2px 6px;border-radius:6px;cursor:pointer}
+.empty{color:var(--muted);padding:40px;text-align:center}
+.results{margin-top:22px}
+.results h2{font-size:15px;margin:0 0 12px}
+.loading{color:var(--muted);padding:20px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);padding:10px 18px;border-radius:10px;display:none}
+.toast.show{display:block}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>imgsim</h1>
+    <span class="stat">Записей: <b>{{ stats.total_rows }}</b></span>
+    <span class="stat">Миниатюр: <b>{{ stats.thumbs_count }}</b> ({{ stats.thumbs_mb }} МБ)</span>
+    <button class="secondary" @click="loadRows" :disabled="busy">⟳ Обновить</button>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <input v-model="query" placeholder="поиск по пути…" @input="onQuery">
+      <select v-model="pageSize">
+        <option :value="100">100</option>
+        <option :value="200">200</option>
+        <option :value="500">500</option>
+      </select>
+      <span class="stat" style="margin-left:auto">{{ selectedCount }} выбрано</span>
+      <button class="del" :disabled="!selectedCount" @click="deleteSelected">Удалить выбранные</button>
+    </div>
+
+    <div v-if="loading" class="loading">Загрузка…</div>
+    <div v-else class="grid">
+      <div class="card" v-for="r in pageItems">
+        <input type="checkbox" v-model="selected[r.hash]">
+        <img class="thumb" :src="'/api/thumb?hash='+r.hash" :alt="r.path" @error="onThumbErr">
+        <span class="like" v-if="r.score" @click="showSimilar(r)">⚡ похожие</span>
+        <div class="meta" :title="r.path">{{ r.path.split('/').pop() }}</div>
+      </div>
+    </div>
+    <div v-if="!loading && !pageItems.length" class="empty">Нечего показывать. Проиндексируйте каталог: imgsim index <каталог> --db {{ dbDir }}</div>
+
+    <nav class="toolbar" v-if="total > pageSize">
+      <button class="secondary" @click="page=Math.max(0,page-1)" :disabled="page===0">← Назад</button>
+      <span class="stat">Страница {{ page + 1 }} / {{ totalPages }}</span>
+      <button class="secondary" @click="page=Math.min(totalPages-1,page+1)" :disabled="page>=totalPages-1">Вперёд →</button>
+    </nav>
+
+    <div class="results" v-if="current">
+      <h2>Похожие для {{ current.name }} <span class="stat" style="font-size:12px">(режим: {{ current.mode }})</span></h2>
+      <div class="grid">
+        <div class="card" v-for="r in current.items">
+          <input type="checkbox" v-model="selected[r.hash]">
+          <img class="thumb" :src="'/api/thumb?hash='+r.hash" :alt="r.path" @error="onThumbErr">
+          <span class="score">⚡ {{ r.score }}</span>
+          <div class="meta" :title="r.path">{{ r.path.split('/').pop() }}</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" :class="{show: toastMsg}">{{ toastMsg }}</div>
+</div>
+
+<script>
+const { createApp } = Vue;
+createApp({
+  data() {
+    return {
+      dbDir: '', stats: {total_rows:0, thumbs_count:0, thumbs_mb:0, has_ann_index:false},
+      rows: [], loading: false, busy: false, query: '', page: 0, pageSize: 200,
+      selected: {}, current: null, toastMsg: '',
+    };
+  },
+  computed: {
+    total() { return this.rows.length; },
+    totalPages() { return Math.max(1, Math.ceil(this.total / this.pageSize)); },
+    selectedCount() { return Object.keys(this.selected).filter(k => this.selected[k]).length; },
+    pageItems() {
+      const q = this.query.trim().toLowerCase();
+      const list = q ? this.rows.filter(r => r.path.toLowerCase().includes(q)) : this.rows;
+      return list.slice(this.page * this.pageSize, this.page * this.pageSize + this.pageSize);
+    },
+  },
+  watch: {
+    totalPages(np, op) { if (this.page >= np) this.page = np - 1; },
+  },
+  mounted() {
+    fetch('/api/stats').then(r => r.json()).then(d => { this.stats = d; }).catch(() => {});
+    this.loadRows();
+  },
+  methods: {
+    toast(msg) { this.toastMsg = msg; setTimeout(() => { this.toastMsg = ''; }, 2500); },
+    loadRows() {
+      this.busy = true; this.loading = true;
+      fetch('/api/rows?offset=0&limit=' + this.pageSize)
+        .then(r => r.json())
+        .then(d => { this.rows = d.items; this.page = 0; this.loading = false; })
+        .catch(() => { this.loading = false; this.toast('Ошибка загрузки'); })
+        .finally(() => { this.busy = false; });
+    },
+    onQuery() { this.page = 0; },
+    onThumbErr(e) { e.target.style.opacity = .3; e.target.alt = 'нет файла'; },
+    showSimilar(r) {
+      const mode = window.__mode || 'image';
+      fetch('/api/search?hash=' + encodeURIComponent(r.hash) + '&top=30&mode=' + mode)
+        .then(res => res.json())
+        .then(d => { this.current = { name: r.path.split('/').pop(), mode, items: d.items }; })
+        .catch(() => this.toast('Ошибка поиска'));
+    },
+    deleteSelected() {
+      const hashes = Object.keys(this.selected).filter(k => this.selected[k]);
+      if (!hashes.length) return;
+      if (!confirm('Удалить ' + hashes.length + ' записей?')) return;
+      fetch('/api/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({hashes})})
+        .then(r => r.json())
+        .then(d => {
+          hashes.forEach(h => delete this.selected[h]);
+          this.toast('Удалено: ' + d.deleted);
+          this.loadRows();
+        })
+        .catch(() => this.toast('Ошибка удаления'));
+    },
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

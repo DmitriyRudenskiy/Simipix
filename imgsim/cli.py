@@ -100,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_srv.add_argument("--port", type=int, default=8137)
     _add_common(p_srv)
 
+    p_web = sub.add_parser(
+        "web", help="HTTP API + Vue-фронт для просмотра/поиска/удаления в инксе")
+    p_web.add_argument("--host", default="127.0.0.1")
+    p_web.add_argument("--port", type=int, default=8137)
+    _add_common(p_web)
+
     return ap
 
 
@@ -164,6 +170,12 @@ def _cmd_find_duplicates(args) -> int:
 def _cmd_serve(args) -> int:
     from .serve import run
     run(db_dir=args.db, root=args.dir, host=args.host, port=args.port)
+    return 0
+
+
+def _cmd_web(args) -> int:
+    from .api import run
+    run(db_dir=args.db, host=args.host, port=args.port)
     return 0
 
 
@@ -252,7 +264,7 @@ def main(argv=None) -> int:
         rc = {"index": _cmd_index, "search": _cmd_search,
               "stats": _cmd_stats, "browse": _cmd_browse,
               "find_duplicates": _cmd_find_duplicates, "delete": _cmd_delete,
-              "serve": _cmd_serve}
+              "serve": _cmd_serve, "web": _cmd_web}
         rc = rc[args.cmd](args)
     except KeyboardInterrupt:
         print("\nПрервано пользователем.")

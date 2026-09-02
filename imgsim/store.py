@@ -103,13 +103,19 @@ class ImageStore:
         existing = set(arrow.column("hash").to_pylist())
         return set(hashes) & existing
 
-    def get_meta(self, hash: str) -> dict | None:
-        """Путь/mtime/size/миниатюра/поза/face_vector по хешу (None, если хеша нет)."""
+    def get_meta(self, hash: str, with_vector: bool = False) -> dict | None:
+        """Путь/mtime/size/миниатюра/поза/face_vector по хешу (None, если хеша нет).
+
+        with_vector=True — добавляет столбец vector (нужен для image-поиска по
+        сохранённому вектору запроса, без пере-эмбеддинга)."""
         t = self.table(create=False)
         if t is None:
             return None
         cols = ["hash", "path", "mtime", "size", "thumb", "pose", "face_vector",
                 "palette", "content"]
+        if with_vector:
+            cols = ["hash", "path", "mtime", "size", "thumb", "vector",
+                    "face_vector", "palette", "content"]
         arrow = t.to_arrow().select(cols)
         for r in arrow.to_pylist():
             if r.get("hash") == hash:
@@ -181,17 +187,19 @@ class ImageStore:
         return len(to_delete)
 
     def delete_hashes(self, hashes: list) -> int:
-        """Удаляет строки по списку хешей (каннами)."""
+        """Удаляет строки по списку хешей (каннами). Возвращает число реально
+        удалённых записей (не чанков — иначе при некорректном хеше отчёт
+        завышал бы количество)."""
         t = self.table(create=False)
         if t is None or not hashes:
             return 0
-        n = 0
-        for chunk in _chunks(sorted(set(hashes)), 500):
+        current = self.existing_hashes()
+        to_delete = [h for h in set(hashes) if h in current]
+        for chunk in _chunks(sorted(to_delete), 500):
             quoted = ", ".join("'" + _check_hash(h).replace("'", "''") + "'"
                                for h in chunk)
             t.delete(f"hash IN ({quoted})")
-            n += 1
-        return n
+        return len(to_delete)
 
     # ------------------------------------------------------------------- index
     def has_vector_index(self) -> bool:
