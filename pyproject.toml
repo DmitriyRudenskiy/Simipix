@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dinov2-image-search"
+version = "1.0.0"
+description = "Индексация изображений и поиск похожих: DINOv2 (facebook/dinov2-giant) + LanceDB"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.1",
+    "torchvision",
+    "transformers>=4.44",
+    "lancedb>=0.15",
+    "pylance>=0.20",
+    "pillow>=10.0",
+    "tqdm>=4.66",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+imgsim = "imgsim.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["imgsim*"]

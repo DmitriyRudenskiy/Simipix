@@ -1,0 +1,10 @@
+# torch/torchvision: на Linux pip по умолчанию ставит CUDA-сборку.
+# Только CPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+torchvision
+transformers>=4.44
+lancedb>=0.15
+pylance>=0.20
+pillow>=10.0
+tqdm>=4.66
+numpy>=1.24

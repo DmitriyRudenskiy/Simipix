@@ -1,0 +1,21 @@
+# Generated / large artifacts
+image_db/
+results/
+models/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Logs & scratch
+*.log
+rebuild.log
+_t*.py
+
+# OS
+.DS_Store
