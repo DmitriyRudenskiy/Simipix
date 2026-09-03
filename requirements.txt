@@ -8,3 +8,5 @@ pylance>=0.20
 pillow>=10.0
 tqdm>=4.66
 numpy>=1.24
+# graph: граф сходства, Louvain-кластеризация, центральность (команда `graph`).
+networkx>=3.0

@@ -87,6 +87,16 @@ def build_parser() -> argparse.ArgumentParser:
                        help="путь к HTML-отчёту (по умолчанию "
                             "results/duplicates_<время>.html)")
 
+    p_graph = sub.add_parser(
+        "graph", help="граф сходства: кластеры (Louvain), хабы, аномалии")
+    _add_common(p_graph)
+    p_graph.add_argument("--threshold", type=float, default=0.85,
+                         help="порог cosine-схожести для рёбер, 0..1 "
+                              "(по умолчанию 0.85)")
+    p_graph.add_argument("--out", default=None,
+                         help="путь к HTML (по умолчанию "
+                              "results/graph_<время>.html); рядом лежит .json")
+
     p_del = sub.add_parser(
         "delete", help="удалить записи из индекса по хешу (только по команде)")
     _add_common(p_del)
@@ -164,6 +174,16 @@ def _cmd_find_duplicates(args) -> int:
         return 2
     run_find_duplicates(args.db, model_dir=args.model_dir,
                         threshold=args.threshold, out_path=args.out)
+    return 0
+
+
+def _cmd_graph(args) -> int:
+    from .graph import run_graph
+    if not 0.0 < args.threshold < 1.0:
+        print("--threshold должен быть в диапазоне 0..1", file=sys.stderr)
+        return 2
+    run_graph(args.db, model_dir=args.model_dir,
+              threshold=args.threshold, out_path=args.out)
     return 0
 
 
@@ -263,7 +283,8 @@ def main(argv=None) -> int:
     try:
         rc = {"index": _cmd_index, "search": _cmd_search,
               "stats": _cmd_stats, "browse": _cmd_browse,
-              "find_duplicates": _cmd_find_duplicates, "delete": _cmd_delete,
+              "find_duplicates": _cmd_find_duplicates, "graph": _cmd_graph,
+              "delete": _cmd_delete,
               "serve": _cmd_serve, "web": _cmd_web}
         rc = rc[args.cmd](args)
     except KeyboardInterrupt:
