@@ -23,24 +23,21 @@ from pathlib import Path
 from . import config
 from .imaging import prepare_image
 from .store import ImageStore, _check_hash
-
-MIME = mimetypes.guess_type or (lambda p: (None, None))
+from .utils import distance_to_cosine
 
 
 def _mime(path: Path) -> str:
     return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
 
+# _api_open отдаёт только эти расширения — иначе /etc/passwd (is_file()
+# истинен) утекал бы через поддельный путь в БД.
+_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".tiff", ".raw"}
+
+
 def _row_view(r: dict) -> dict:
     return {"hash": r.get("hash"), "path": r.get("path"),
             "thumb": r.get("thumb"), "size": r.get("size")}
-
-
-def _score_from_distance(dist) -> float:
-    # векторы нормированы (L2=1): cosine = 1 - dist²/2 (dist — L2)
-    if dist is None:
-        return 0.0
-    return max(0.0, min(1.0, 1.0 - (float(dist) ** 2) / 2.0))
 
 
 def search_by_hash(store: ImageStore, h: str, top_k: int = 50,
@@ -58,7 +55,7 @@ def search_by_hash(store: ImageStore, h: str, top_k: int = 50,
         raw = store.search(vec, top_k + 10, column="vector")
         out = []
         for r in raw:
-            s = _score_from_distance(r.get("_distance"))
+            s = distance_to_cosine(r.get("_distance"))
             if s < min_score or r["path"] == row["path"]:
                 continue
             out.append({**_row_view(r), "score": round(s, 4)})
@@ -71,7 +68,7 @@ def search_by_hash(store: ImageStore, h: str, top_k: int = 50,
         raw = store.search(vec, top_k + 10, column="face_vector")
         out = []
         for r in raw:
-            s = _score_from_distance(r.get("_distance"))
+            s = distance_to_cosine(r.get("_distance"))
             if s < min_score or r["path"] == row["path"]:
                 continue
             out.append({**_row_view(r), "score": round(s, 4)})
@@ -222,8 +219,13 @@ class APIHandler(BaseHTTPRequestHandler):
         meta = self._store().get_meta(h)
         if not meta:
             return self._send_text(404, "Not found")
-        p = Path(meta["path"])
-        self._send_file(p if p.is_file() else _missing())
+        # resolve + whitelist расширений: /api/open отдаёт только реальные
+        # изображения. Блокирует path traversal через поддельный путь в БД
+        # (например /etc/passwd — он is_file(), но не картинка).
+        p = Path(meta["path"]).resolve()
+        if p.suffix.lower() not in _IMAGE_EXT or not p.is_file():
+            return self._send_text(404, "Not found")
+        self._send_file(p)
 
     def _thumb(self, qs: dict):
         h = qs.get("hash", [""])[0]
@@ -249,10 +251,6 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):  # тише, без спам-лога каждого запроса
         pass
-
-
-def _missing() -> Path:
-    return Path("/dev/null")
 
 
 def make_handler(db_dir: str):

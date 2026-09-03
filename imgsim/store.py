@@ -144,29 +144,19 @@ class ImageStore:
     def upsert_rows(self, rows: list) -> int:
         """Добавить новые записи и обновить (path/mtime/size/thumb) у существующих.
 
-        Возвращает число обновлённых записей (перемещённых/переименованных).
+        Возвращает число обновлённых записей (перемещённых/переимёванных).
         """
         if not rows:
             return 0
-        t = self.table()
-        # Разделяем: новые (хеша нет) добавляем, старые — обновляем.
         existing = self.find_hashes([r["hash"] for r in rows])
+        n_upd = sum(1 for r in rows if r["hash"] in existing)
         import pyarrow as pa
-        new_rows = [r for r in rows if r["hash"] not in existing]
-        upd_rows = [r for r in rows if r["hash"] in existing]
-        if new_rows:
-            t.add(pa.Table.from_pylist(new_rows, schema=self.schema()))
-        # Обновляем построчно скалярными значениями: LanceDB 0.38 не принимает
-        # per-row списки в update (падает на List->Float), а where по строке на
-        # arrow/Lance-таблице не поддерживается — поэтому фильтр по одному хешу.
-        # Перемещённые/переименованные файлы редки, поэтому N прогодов ок.
-        n_upd = 0
-        for r in upd_rows:
-            q = "'" + _check_hash(r["hash"]).replace("'", "''") + "'"
-            t.update(where=f"hash = {q}",
-                     values={"path": r["path"], "mtime": r["mtime"],
-                             "size": r["size"], "thumb": r["thumb"]})
-            n_upd += 1
+        t = self.table()
+        data = pa.Table.from_pylist(rows, schema=self.schema())
+        # merge_insert — единый батч «вставил новый / обновил существующий».
+        # Старый построчный update уходил в O(n) прогодов при массовом перемещении
+        # файлов; merge_insert делает то же за один вызов (lancedb >= 0.15).
+        t.merge_insert("hash").when_matched_update_all().when_not_matched_insert_all().execute(data)
         return n_upd
 
     def prune_missing_hashes(self, keep_hashes: set) -> int:

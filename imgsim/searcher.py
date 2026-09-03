@@ -12,6 +12,7 @@ from .imaging import make_thumbnail, prepare_image, sha1_bytes
 from .model import DINOv2Embedder
 from .pose import PoseDetector, Pose, cosine
 from .store import ImageStore
+from .utils import distance_to_cosine
 
 
 def _search_pose(pose_vec, store, query_sha, top_k, min_score, log):
@@ -137,7 +138,7 @@ def run_search(query_image: str, db_dir: str, model_dir: str | None = None,
                 if p == str(query):
                     continue
                 # векторы нормированы (L2=1): cosine = 1 - dist²/2 (dist — L2)
-                score = max(0.0, min(1.0, 1.0 - (float(r["_distance"]) ** 2) / 2.0))
+                score = distance_to_cosine(r.get("_distance"))
                 results.append({"path": p, "score": score, "thumb": r["thumb"]})
                 if len(results) >= top_k:
                     break

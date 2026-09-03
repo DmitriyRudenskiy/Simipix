@@ -20,7 +20,7 @@ from . import config
 
 # Разрешаем очень большие изображения; размер файла ограничиваем сами
 # (config.MAX_FILE_BYTES), чтобы не падать на аномалиях.
-Image.MAX_IMAGE_PIXELS = None
+Image.MAX_IMAGE_PIXELS = 200_000_000
 
 
 def _resize_to_max(img: Image.Image, max_side: int) -> Image.Image:
