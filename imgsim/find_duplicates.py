@@ -136,6 +136,12 @@ button:hover{filter:brightness(1.08)}
 .hint{color:var(--muted);font-size:13px}
 .empty{max-width:1240px;margin:40px auto;color:var(--muted);text-align:center;
 font-size:15px;padding:40px;border:1px dashed var(--line);border-radius:12px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.toolbar select,.toolbar input{background:var(--panel);color:#eaeef5;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px}
+.nav{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:16px}
+.nav button{padding:8px 16px;font-size:13px}
+.group-header-select{display:flex;align-items:center;gap:8px;margin-left:12px}
+.group-header-select input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 """
 
 
@@ -156,6 +162,54 @@ function gen(){
   L.push('#   imgsim index <каталог> --db '+db+' --prune');
   document.getElementById('out').value=L.join('\\n');
 
+}
+function toggleGroup(groupId, checked){
+  var cards = document.querySelectorAll('.group[data-group-id=\"' + groupId + '\"] .dchk');
+  for(var i=0;i<cards.length;i++){cards[i].checked=checked;}
+}
+function updatePageInfo(){
+  var page = parseInt(document.getElementById('pageSelect').value) || 0;
+  var pageSize = parseInt(document.getElementById('pageSizeSelect').value) || 50;
+  var groups = document.querySelectorAll('.group');
+  var start = page * pageSize;
+  var end = start + pageSize;
+  var imgCount = 0;
+  groups.forEach(function(g,i){if(i>=start && i<end){imgCount+=parseInt(g.dataset.count);}});
+  document.getElementById('pageInfo').textContent = 'Показано групп: ' + (Math.min(end, groups.length) - start) + ', изображений: ' + imgCount;
+}
+function goToPage(delta){
+  var sel = document.getElementById('pageSelect');
+  var newPage = parseInt(sel.value) + delta;
+  if(newPage >= 0 && newPage < sel.options.length){sel.selectedIndex = newPage; updatePageInfo(); renderGroups();}
+}
+function renderGroups(){
+  var page = parseInt(document.getElementById('pageSelect').value) || 0;
+  var pageSize = parseInt(document.getElementById('pageSizeSelect').value) || 50;
+  var allGroups = window.__ALL_GROUPS_DATA || [];
+  var start = page * pageSize;
+  var end = start + pageSize;
+  var visibleGroups = allGroups.slice(start, end);
+  var container = document.getElementById('groupsContainer');
+  container.innerHTML = '';
+  visibleGroups.forEach(function(g){
+    container.insertAdjacentHTML('beforeend', g.html);
+  });
+  updatePageInfo();
+}
+function onPageSizeChange(){
+  var sel = document.getElementById('pageSelect');
+  var pageSize = parseInt(document.getElementById('pageSizeSelect').value) || 50;
+  var totalImgs = window.__TOTAL_IMAGES || 0;
+  var totalPages = Math.max(1, Math.ceil(totalImgs / pageSize));
+  sel.innerHTML = '';
+  for(var i=0;i<totalPages;i++){
+    var opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = (i+1);
+    sel.appendChild(opt);
+  }
+  updatePageInfo();
+  renderGroups();
 }
 """
 
@@ -184,6 +238,35 @@ def _card_html(r, h, p, keep, sc_i) -> str:
 def render_html(groups: list[list[int]], scores: list[dict], rows: list,
                 threshold: float, model_id: str, dim: int,
                 total_rows: int, db_dir: str) -> str:
+    # Сортируем группы по размеру (от больших к меньшим)
+    indexed_groups = list(enumerate(groups))
+    indexed_groups.sort(key=lambda x: -len(x[1]))
+    
+    # Подготовка данных для всех групп
+    all_groups_data = []
+    total_images = 0
+    
+    for new_idx, (orig_gi, g) in enumerate(indexed_groups, 1):
+        orig_idx = orig_gi  # оригинальный индекс (0-based)
+        sc = scores[orig_idx]
+        sample = g[0]
+        avg = sum(sc[i] for i in g if i != sample) / (len(g) - 1)
+        
+        group_html = '<div class="group" data-group-id="' + str(new_idx) + '" data-count="' + str(len(g)) + '"><div class="gh">'
+        group_html += '<span class="tag">Группа #' + str(new_idx) + '</span>'
+        group_html += '<span class="cnt">' + str(len(g)) + ' файлов</span>'
+        group_html += '<div class="group-header-select">'
+        group_html += '<input type="checkbox" id="grpchk_' + str(new_idx) + '" onchange="toggleGroup(' + str(new_idx) + ', this.checked)">'
+        group_html += '<label for="grpchk_' + str(new_idx) + '">выделить все</label></div>'
+        group_html += '<span class="avg">средняя схожесть: <b>' + format(avg, '.2f') + '</b></span></div><div class="cards">'
+        for i in g:
+            card = _card_html(rows[i], rows[i]["hash"], rows[i]["path"],
+                              i == sample, sc[i])
+            group_html += card
+        group_html += '</div></div>'
+        all_groups_data.append({'html': group_html, 'count': len(g)})
+        total_images += len(g)
+    
     parts = [
         '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">',
         '<title>' + str(len(groups)) + ' групп дубликатов</title><style>' + _CSS +
@@ -199,22 +282,26 @@ def render_html(groups: list[list[int]], scores: list[dict], rows: list,
                      format(threshold, '.2f') + ' не найдено. Все изображения '
                      'уникальны.</div>')
     else:
-        parts.append('<div class="grid">')
-        for gi, g in enumerate(groups, 1):
-            sc = scores[gi - 1]
-            sample = g[0]
-            avg = sum(sc[i] for i in g if i != sample) / (len(g) - 1)
-            parts.append('<div class="group"><div class="gh">')
-            parts.append('<span class="tag">Группа #' + str(gi) + '</span>')
-            parts.append('<span class="cnt">' + str(len(g)) + ' файлов</span>')
-            parts.append('<span class="avg">средняя схожесть: <b>' +
-                         format(avg, '.2f') + '</b></span></div><div class="cards">')
-            for i in g:
-                card = _card_html(rows[i], rows[i]["hash"], rows[i]["path"],
-                                  i == sample, sc[i])
-                parts.append(card)
-            parts.append('</div></div>')
+        parts.append('<div class="toolbar">')
+        parts.append('<label>На странице: <select id="pageSizeSelect" onchange="onPageSizeChange()">')
+        parts.append('<option value="50">50 изображений</option>')
+        parts.append('<option value="100">100 изображений</option>')
+        parts.append('<option value="200">200 изображений</option>')
+        parts.append('</select></label>')
+        parts.append('<button onclick="goToPage(-1)">← Назад</button>')
+        parts.append('<select id="pageSelect" onchange="renderGroups()"></select>')
+        parts.append('<button onclick="goToPage(1)">Вперёд →</button>')
+        parts.append('<span id="pageInfo" class="stat"></span>')
         parts.append('</div>')
+        parts.append('<div id="groupsContainer" class="grid"></div>')
+        
+        # Скрипт для инициализации данных и рендеринга
+        parts.append('<script>')
+        parts.append('window.__ALL_GROUPS_DATA = ' + str(all_groups_data).replace("'", '"') + ';')
+        parts.append('window.__TOTAL_IMAGES = ' + str(total_images) + ';')
+        parts.append(_JS.replace('__DB_DIR__', repr(db_dir)))
+        parts.append('onPageSizeChange();')
+        parts.append('</script>')
 
     parts.append('<div class="sticky"><button onclick="gen()">Удалить отмеченное'
                  '</button><span class="hint">Генерирует `imgsim delete` + rm — '
@@ -223,8 +310,7 @@ def render_html(groups: list[list[int]], scores: list[dict], rows: list,
                  '"Нажмите «Удалить отмеченное», чтобы сгенерировать команды '
                  'удаление. Проверьте и скопируйте.">'
                  '</textarea>')
-    parts.append('<script>' +
-                 _JS.replace('__DB_DIR__', repr(db_dir)) + '</script></body></html>')
+    parts.append('</body></html>')
 
     return ''.join(parts)
 
@@ -245,6 +331,11 @@ def run_find_duplicates(db_dir: str, model_dir: str | None = None,
         return Path(out_path or '(не сгенерировано)')
 
     groups, scores = _find_groups(rows, threshold)
+    
+    # Сортируем группы по размеру для вывода в логе (от больших к меньшим)
+    indexed_groups = list(enumerate(groups))
+    indexed_groups.sort(key=lambda x: -len(x[1]))
+    sorted_groups = [g for _, g in indexed_groups]
 
     out = Path(out_path) if out_path else (
         config.results_dir() / f'duplicates_{datetime.now():%Y%m%d_%H%M%S}.html')
@@ -264,11 +355,11 @@ def run_find_duplicates(db_dir: str, model_dir: str | None = None,
             out.read_text(encoding="utf-8"), encoding="utf-8")
     except OSError:
         pass
-    for gi, g in enumerate(groups[:20], 1):
+    for gi, g in enumerate(sorted_groups[:20], 1):
         names = [Path(rows[i]['path']).name for i in g]
         log(f'  {gi}. {' '.join(names)}')
-    if len(groups) > 20:
-        log(f'  ... ещё {len(groups) - 20} групп')
+    if len(sorted_groups) > 20:
+        log(f'  ... ещё {len(sorted_groups) - 20} групп')
     log(f'HTML: {out.resolve()} ({time.time() - t0:.1f} с)')
     return out
 
