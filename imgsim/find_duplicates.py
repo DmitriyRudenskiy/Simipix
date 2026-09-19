@@ -264,9 +264,11 @@ def run_find_duplicates(db_dir: str, model_dir: str | None = None,
             out.read_text(encoding="utf-8"), encoding="utf-8")
     except OSError:
         pass
+    
+    # Вывод первых 20 групп дубликатов в лог
     for gi, g in enumerate(groups[:20], 1):
         names = [Path(rows[i]['path']).name for i in g]
-        log(f'  {gi}. {' '.join(names)}')
+        log(f'  {gi}. {" ".join(names)}')
     if len(groups) > 20:
         log(f'  ... ещё {len(groups) - 20} групп')
     log(f'HTML: {out.resolve()} ({time.time() - t0:.1f} с)')

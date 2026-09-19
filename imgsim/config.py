@@ -1,4 +1,12 @@
-"""Общие константы и настройки imgsim."""
+"""Общие константы и настройки imgsim.
+
+Настройки можно переопределять через переменные окружения с префиксом IMGSIM_:
+  - IMGSIM_DB_DIR         — каталог базы данных (по умолчанию ./image_db)
+  - IMGSIM_RESULTS_DIR    — каталог результатов (по умолчанию ./results)
+  - IMGSIM_FACE_MODEL     — путь к модели детектора лиц
+  - IMGSIM_INDEX_MIN_ROWS — порог создания индекса (по умолчанию 100000)
+  - IMGSIM_ANN_NPROBES    — делитель nprobes для ANN-поиска (по умолчанию 5)
+"""
 
 import os
 from pathlib import Path
@@ -54,17 +62,18 @@ MAX_FILE_BYTES = 512 * 1024 * 1024  # 512 МБ
 TABLE_PREFIX = "images_"          # images_giant
 # IVF-PQ индекс строим, начиная с такого числа строк; до этого — точный
 # плоский поиск (он быстрее на малых объёмах).
-INDEX_MIN_ROWS = 100_000
+INDEX_MIN_ROWS = int(os.environ.get("IMGSIM_INDEX_MIN_ROWS", 100_000))
 # Сбрасывать буфер накопленных строк в базу каждые N строк (меньше сегментов)
 STORE_FLUSH_ROWS = 64  # ponytail: пачка в RAM перед эмбеддом; ~640 МБ PIL + пачка эмбедда. 256 проседал в swap на загруженной машине — замедлял индексацию; 64 устойчивее
 
 # Доля партиций IVF-PQ, которые пробует запрос при векторном поиске. Больше →
 # выше recall, медленнее запрос. 5 — стартовое из рекомендаций LanceDB; тюнить
 # под recall@k: если поиск теряет похожие на больших (>100k) инксах — уменьшить.
-ANN_NPROBES_DIVISOR = 5
+ANN_NPROBES_DIVISOR = int(os.environ.get("IMGSIM_ANN_NPROBES", 5))
 
-DEFAULT_DB_DIR = "./image_db"
-DEFAULT_RESULTS_DIR = "./results"
+# Пути к БД и результатам — можно задать через env
+DEFAULT_DB_DIR = os.environ.get("IMGSIM_DB_DIR", "./image_db")
+DEFAULT_RESULTS_DIR = os.environ.get("IMGSIM_RESULTS_DIR", "./results")
 
 # Страница каталога (`browse`) — сколько записей встраивать в HTML с векторами
 # для клиентского cosine-поиска. До этого порога — текстовый фильтр + похожие.
