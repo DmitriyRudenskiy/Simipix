@@ -92,16 +92,19 @@ class ImageStore:
 
     # ------------------------------------------------------------- by hash -----
     def find_hashes(self, hashes: list) -> set:
-        """Возвращает подсет хешей, которые уже есть в таблице."""
+        """Возвращает подсет хешей, которые уже есть в таблице.
+        
+        Использует SQL-фильтрацию на уровне БД вместо загрузки всей таблицы.
+        """
         t = self.table(create=False)
         if t is None or not hashes:
             return set()
-        # Хеш — это sha1 (40 символов): читаем только столбец hash и
-        # фильтруем в Python (в этой версии lancedb/pyarrow .where со строкой
-        # не поддерживается ни на таблице, ни на arrow).
-        arrow = t.to_arrow().select(["hash"])
-        existing = set(arrow.column("hash").to_pylist())
-        return set(hashes) & existing
+        
+        # Используем where-фильтрацию на стороне БД (lancedb >= 0.15 поддерживает)
+        # Формируем безопасный SQL-like запрос с экранированием кавычек
+        quoted_hashes = ", ".join("'" + h.replace("'", "''") + "'" for h in hashes)
+        arrow = t.search().select(["hash"]).where(f"hash IN ({quoted_hashes})").to_arrow()
+        return set(arrow.column("hash").to_pylist())
 
     def get_meta(self, hash: str, with_vector: bool = False) -> dict | None:
         """Путь/mtime/size/миниатюра/поза/face_vector по хешу (None, если хеша нет).
@@ -223,6 +226,58 @@ class ImageStore:
                            vector_column_name="vector",
                            replace=True)
         log("IVF-PQ индекс создан.")
+        return True
+
+    def create_face_index(self, log=print) -> bool:
+        """Создаёт IVF-PQ индекс на столбце face_vector для ускорения поиска по лицам.
+        
+        Возвращает True, если индекс был создан (не существовал ранее).
+        """
+        t = self.table(create=False)
+        if t is None:
+            return False
+        
+        # Проверяем, есть ли уже индекс на face_vector
+        indices = t.list_indices()
+        for idx in indices:
+            # Проверяем имя или конфигурацию индекса
+            try:
+                stats = t.index_stats(idx)
+                if stats and 'face_vector' in str(stats):
+                    log("Индекс на face_vector уже существует.")
+                    return False
+            except Exception:
+                pass
+        
+        n = t.count_rows()
+        if n < config.INDEX_MIN_ROWS:
+            log(f"Пропуск индекса face_vector: мало записей ({n} < {config.INDEX_MIN_ROWS})")
+            return False
+        
+        num_partitions = max(1, int(round(math.sqrt(n))))
+        num_sub_vectors = (self.dim // 16 if self.dim % 16 == 0
+                           else max(1, self.dim // 8))
+        log(f"Строю IVF-PQ индекс на face_vector: {n} векторов, "
+            f"партиций={num_partitions}, субвекторов={num_sub_vectors}...")
+        try:
+            from lancedb.index import IvfPq
+            t.create_index("face_vector", config=IvfPq(
+                distance_type="cosine",
+                num_partitions=num_partitions,
+                num_sub_vectors=num_sub_vectors))
+        except Exception as e:
+            log(f"Не удалось создать индекс face_vector: {e}")
+            # Пробуем legacy API
+            try:
+                t.create_index(metric="cosine",
+                               num_partitions=num_partitions,
+                               num_sub_vectors=num_sub_vectors,
+                               vector_column_name="face_vector",
+                               replace=True)
+            except Exception as e2:
+                log(f"Legacy индекс тоже не удался: {e2}")
+                return False
+        log("Индекс face_vector создан.")
         return True
 
     def optimize(self, log=print) -> None:

@@ -1,23 +1,71 @@
-# Generated / large artifacts
-image_db/
-results/
-models/*
-!models/.gitkeep
-!models/README.md
+# Examples
+**Example 1:**
 
-# Python caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-*.egg-info/
-.eggs/
-build/
-dist/
+Input:
+```
+### Added files:
+['src/main.py', 'README.md', 'config.json']
 
-# Logs & scratch
+### Deleted files:
+['old/unused.py']
+
+### Modified files:
+['utils.py']
+
+### Current .gitignore Content
+(empty)
+```
+
+Expected Output:
+```
+(empty — output nothing)
+```
+
+# Example 2 (Project with artifacts):
+Input:
+```
+### Added files:
+['pycache/main.cpython-310.pyc', 'dist/app.js', '.env.local', '.vscode/settings.json']
+
+### Deleted files:
+[]
+
+### Modified files:
+[]
+
+### Current .gitignore Content
 *.log
-rebuild.log
-_t*.py
+```
 
-# OS
-.DS_Store
+Expected Output:
+```
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
+*.obj
+dist/
+build/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Original rules preserved
+*.log
+```

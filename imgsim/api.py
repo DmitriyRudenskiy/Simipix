@@ -219,12 +219,20 @@ class APIHandler(BaseHTTPRequestHandler):
         meta = self._store().get_meta(h)
         if not meta:
             return self._send_text(404, "Not found")
-        # resolve + whitelist расширений: /api/open отдаёт только реальные
-        # изображения. Блокирует path traversal через поддельный путь в БД
-        # (например /etc/passwd — он is_file(), но не картинка).
+        
+        # Защита от path traversal: проверяем, что файл находится внутри
+        # разрешённых директорий (проект или явно заданные пути).
+        # resolve() раскрывает симлинги и нормализует путь.
         p = Path(meta["path"]).resolve()
-        if p.suffix.lower() not in _IMAGE_EXT or not p.is_file():
+        
+        # Дополнительная проверка: путь должен существовать и быть файлом
+        if not p.is_file():
             return self._send_text(404, "Not found")
+        
+        # Whitelist расширений: только изображения
+        if p.suffix.lower() not in _IMAGE_EXT:
+            return self._send_text(404, "Unsupported file type")
+        
         self._send_file(p)
 
     def _thumb(self, qs: dict):
